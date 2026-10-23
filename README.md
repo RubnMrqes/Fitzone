@@ -1,94 +1,112 @@
-# PulseFit Academia · React + Vite + Supabase + Vercel
+# FitZone — React + Supabase
 
-Migração do protótipo HTML/CSS/JS da PulseFit para React. Identidade visual original preservada: preto/cinza com verde-limão `#b7ff34`. Layout responsivo com página institucional, login e painéis separados de administrador, aluno e treinador.
+Sistema de academia com login por e-mail e painéis de administrador, aluno e treinador. O visual PulseFit original foi mantido.
 
-## Executar no seu PC
+## Banco já configurado
 
-**Requisitos:** Node.js 20.19+ ou 22.12+ e npm.
+O projeto Supabase fitzone já recebeu as tabelas e permissões nesta sessão. Não execute novamente a instalação nele. As instruções de SQL abaixo servem para uma instalação futura em outro banco vazio.
+
+## Onde colocar o SQL
+
+O arquivo SQL no GitHub é a cópia do código do banco. Salvar o arquivo no projeto não executa o SQL.
+
+Para instalar em um novo projeto Supabase sem as tabelas:
+
+1. Abra o painel Supabase e selecione **fitzone**.
+2. Entre em **SQL Editor → New query**.
+3. Abra `supabase/schema.sql` neste repositório e copie o conteúdo inteiro.
+4. Cole na consulta e clique em **Run**.
+5. Execute apenas uma vez na instalação inicial. O arquivo já reúne tabelas, gatilhos, políticas e correções, dentro de uma transação. A tabela `usuarios` preexistente é preservada.
+
+Não cole SQL no terminal do VS Code, no JavaScript nem no Table Editor.
+
+| Arquivo | Para que serve | Quando executar |
+| --- | --- | --- |
+| `supabase/schema.sql` | Instalação completa atualizada | Uma vez em OUTRO banco sem as tabelas da academia; o fitzone atual já foi instalado |
+
+O antigo bloco `INSTALACAO_FITZONE.sql` do guia foi consolidado em `schema.sql`. Não execute os dois, pois criam as mesmas tabelas. Criar ou mover arquivos no GitHub não sincroniza automaticamente o banco.
+
+Se aparecer `app_role already exists` ou `relation profiles already exists`, não apague tabelas. A instalação inicial já foi executada ou o banco tem uma estrutura parcial; confira o que existe antes de tentar novamente.
+
+## Conexão do aplicativo
+
+Na raiz, copie `.env.example` para `.env.local` e preencha:
+
+```env
+VITE_SUPABASE_URL=https://enzqaaxhipqnpshzskco.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=SUA_CHAVE_PUBLICA_PUBLISHABLE
+VITE_DEMO_MODE=false
+```
+
+Copie a chave pública do projeto em Settings / API Keys. `.env.local` está no .gitignore e não deve ser enviado ao GitHub. Não coloque senha do banco, service_role, sb_secret ou connection string PostgreSQL no React. A publishable key é pública; permissões de tabela e RLS protegem os dados.
+
+A chave antiga `VITE_SUPABASE_ANON_KEY` continua aceita por compatibilidade. Demonstração exige `VITE_DEMO_MODE=true`, chaves vazias e `npm run dev`; nunca é habilitada em produção por falta de configuração.
+
+## Primeiro administrador
+
+1. Depois de executar o SQL, vá a **Authentication → Users → Add user / Create user**.
+2. Crie a conta com seu e-mail e uma senha individual; confirme o e-mail conforme sua configuração.
+3. O gatilho cria um perfil `aluno`. Para promover sua conta, abra outra consulta no **SQL Editor**, substitua o e-mail abaixo e clique **Run**:
+
+```sql
+update public.profiles
+set role = 'admin', full_name = 'Administrador FitZone'
+where id = (select id from auth.users where email = 'SEU_EMAIL_AQUI')
+returning id, full_name, role;
+```
+
+O comando deve retornar seu perfil como `admin`. Se retornar zero linhas, confira o e-mail e se a conta Auth foi criada. Entre no site pela aba Administrador usando o e-mail e a senha da conta Auth. A senha do banco não é a senha de login dos alunos.
+
+Para treinador, use outra conta criada no Auth e altere seu perfil para `treinador` pelo SQL Editor. Nunca permita que o navegador escolha ou altere o próprio papel.
+
+## Vincular um aluno
+
+Cadastro no painel administrativo não cria conta Auth. Crie a conta em Authentication > Users e vincule o UUID ao campo `members.profile_id` do cadastro do aluno no Table Editor. `members.id` é o identificador do cadastro; `members.profile_id` é o identificador de Auth.
+
+Para aluno que ainda não tem cadastro em members, pode usar no SQL Editor:
+
+```sql
+insert into public.members (profile_id, full_name, plan, status)
+select id, 'Nome do aluno', 'Essencial', 'active'
+from auth.users where email = 'EMAIL_DO_ALUNO'
+on conflict (profile_id) do update set full_name = excluded.full_name
+returning id, profile_id, full_name;
+```
+
+Se o cadastro já existir sem vínculo, atualize esse cadastro no Table Editor em vez de inserir outro.
+
+## Executar no computador
+
+Node 20.19+ ou 22.12+ e npm:
 
 ```bash
-npm install
-cp .env.example .env.local
+npm ci
+npm run lint
 npm run dev
 ```
 
-No Windows, copie `.env.example` para `.env.local` pelo Explorador ou execute `copy .env.example .env.local`. Abra a URL fornecida pelo Vite (geralmente `http://localhost:5173`).
+Reinicie o Vite após editar .env.local. Para produção: `npm run build` gera dist.
 
-## Modo demonstração (sem Supabase)
+Na Vercel ou em outra hospedagem, configure as variáveis VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY antes do build e publique novamente. Configure o domínio real em Authentication > URL Configuration para os fluxos por e-mail.
 
-Com `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` vazios, a aplicação usa localStorage e contas **somente de demonstração**:
+## Correções incluídas
 
-| Papel | E-mail | Senha |
-| --- | --- | --- |
-| Admin | admin@pulsefit.com | admin123 |
-| Aluno | aluno@pulsefit.com | aluno123 |
-| Treinador | treinador@pulsefit.com | treino123 |
+- Autenticação com sessão persistente e erros de configuração/perfil visíveis.
+- Demonstração só com opt-in explícito em desenvolvimento.
+- Presenças usam o UUID correto do aluno vinculado.
+- Horários são normalizados para HH:mm; troca de reserva é atômica e preserva a anterior quando não há vaga.
+- Presença e conclusão repetidas são idempotentes.
+- Helpers de autorização ficam no schema privado; permissões explícitas e RLS separam admin, treinador e aluno.
+- Datas de reservas usam America/Recife no aplicativo e no banco. Se necessário, altere src/lib/data.js e gym_today() juntos.
 
-Essas senhas só existem no modo demonstrativo, que **não oferece segurança nem sincronização entre dispositivos**. O projeto exige configuração do Supabase para uso com dados reais. Não use dados pessoais de verdade no modo demonstrativo. A home apresenta algumas estatísticas e imagens ilustrativas que não são dados reais de ocupação.
+## Verificação
 
-## Configurar Supabase
+`npm run lint` e `npm run build`.
 
-1. Crie um projeto em [supabase.com](https://supabase.com).
-2. Em **SQL Editor**, execute `supabase/schema.sql` uma única vez em um projeto vazio (o arquivo cria tipo, tabelas, índices, políticas RLS e gatilhos).
-3. Em **Project Settings → API** (ou página de API Keys), copie **Project URL** e a **anon/publishable key**.
-4. Preencha `.env.local`:
+No ambiente real, entre com contas de cada papel, recarregue a página, registre presença e treino, faça reserva e saída. Aluno não deve abrir /admin nem consultar registros privados de outro aluno. Confira os registros no Table Editor.
 
-```env
-VITE_SUPABASE_URL=https://SEU-PROJECT-REF.supabase.co
-VITE_SUPABASE_ANON_KEY=SUA_CHAVE_PUBLICA_ANON_OU_PUBLISHABLE
-```
+## Limites atuais
 
-5. Em **Authentication → Users**, crie pelo menos 3 usuários, usando endereços de e-mail válidos e senhas próprias. O gatilho cria `profiles` automaticamente com papel **aluno**.
-6. No SQL Editor, altere os papéis dos usuários escolhidos usando **o e-mail, nunca senha no SQL**:
+Recuperação de senha e convites ainda precisam de interface. Cadastro de aluno no painel não cria automaticamente uma conta Auth e status inativo não suspende automaticamente o login. Automatizar gestão de contas exige backend/Edge Function com autorização administrativa.
 
-```sql
-update public.profiles set role='admin', full_name='Marina Costa'
-where id=(select id from auth.users where email='EMAIL_DO_ADMIN');
-update public.profiles set role='treinador', full_name='Rafael Souza'
-where id=(select id from auth.users where email='EMAIL_DO_TREINADOR');
-```
-
-7. Para que o aluno apareça na lista de membros e possa receber treinos, vincule seu usuário criado no Auth:
-
-```sql
-insert into public.members (profile_id,full_name,plan,status)
-select id,'Lucas Almeida','Performance','active' from auth.users where email='EMAIL_DO_ALUNO';
-```
-
-**Importante:** perfis só recebem permissão de administrador/treinador pelo SQL seguro. Nunca coloque `service_role`, senhas ou segredos no código React nem em variáveis `VITE_`. A `anon` key é pública e segura **quando o RLS está corretamente configurado**. Quando Supabase está configurado, não existe login hardcoded; use suas contas do Auth.
-
-## Vercel
-
-1. Publique o projeto em seu repositório GitHub.
-2. Na [Vercel](https://vercel.com), importe o repositório. Framework: **Vite**, build command `npm run build`, output `dist`.
-3. Em **Settings → Environment Variables**, crie `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com os valores reais; marque Production / Preview / Development conforme necessário.
-4. Faça **Redeploy**. O arquivo `vercel.json` direciona rotas React para `index.html`.
-5. Configure **Authentication → URL Configuration** no Supabase com o domínio de produção da Vercel (Site URL / Redirect URLs, quando utilizar fluxos de e-mail).
-
-## Organização
-
-```text
-src/
-  main.jsx                 # Router e entrada React
-  auth.jsx                 # Contexto de autenticação e rotas protegidas
-  components.jsx           # Shell, cards, avisos
-  pages/                   # Home, Login, Admin, Student, Trainer
-  lib/supabase.js          # Cliente Supabase
-  lib/api.js               # Acesso a dados, Supabase ou demonstração
-  lib/data.js              # Dados de exemplo e utilitários
-  templates/index.html     # Markup original da página institucional
-  style.css                # CSS original preservado
-  react-additions.css      # Pequenas adaptações React/responsivo
-supabase/schema.sql        # Tabelas, políticas RLS e regras de capacidade
-vercel.json                # SPA fallback
-.env.example               # Nomes das variáveis, sem segredos
-```
-
-## Observações técnicas
-
-- React Router bloqueia visualmente acesso a páginas de perfis diferentes; **segurança real** é implementada com Supabase RLS no banco de dados.
-- Agendamento é para **o dia atual**, máximo de uma reserva por aluno/dia, com restrição de capacidade validada no banco por gatilho.
-- Administrador pode cadastrar registro de aluno e alterar status; **cadastro com acesso ao sistema** deve ser feito pelo Supabase Auth, nunca criando usuário diretamente do navegador com uma chave de administrador.
-- Os painéis leem e escrevem dados reais via Supabase quando conectado; modo demo usa localStorage.
-- Integrações reais de Instagram, WhatsApp, endereço e galeria exigem substituir os dados ilustrativos da página pública.
-- Os dados da home (lotação, planos, estatísticas) são demonstrativos; não representam telemetria real.
+A home contém números ilustrativos; total de treinadores no painel admin é fixo; o checklist de exercícios do aluno tem exemplos fixos. As descrições de treinos cadastradas pelo treinador são persistidas no banco. Um catálogo estruturado de exercícios é uma evolução separada.
